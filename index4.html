@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Disaster WebGIS - GFI Banjir Jawa</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    body { margin:0; padding:0; font-family: Arial, sans-serif; }
+    #map { height: calc(100vh - 48px); }
+    header { height:48px; padding:8px 12px; background:#f8f8f8; border-bottom:1px solid #e3e3e3; display:flex; align-items:center; gap:12px; }
+    #info { font-size:14px; flex:1; }
+
+    /* Legend bottom-right, horizontal layout */
+    .legend-compact {
+      position: absolute;
+      right: 10px;
+      bottom: 10px;
+      z-index: 1000;
+      background: rgba(255,255,255,0.95);
+      padding: 6px 10px;
+      border-radius: 6px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.2);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .legend-compact .legend-img {
+      display: block;
+      height: 30px; /* slightly taller for text clarity */
+      width: auto;
+      image-rendering: auto;
+      border: 1px solid rgba(0,0,0,0.1);
+    }
+    .legend-compact .legend-label {
+      font-weight:600;
+      font-size:12px;
+      color:#222;
+      margin-top: 4px;
+    }
+
+    /* Opacity control */
+    .opacity-panel {
+      background: rgba(255,255,255,0.95);
+      padding: 6px 8px;
+      border-radius: 4px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.12);
+      font-size: 13px;
+      margin-top: 6px;
+    }
+    .opacity-row {
+      display:flex;
+      align-items:center;
+      gap:8px;
+      margin-bottom:6px;
+    }
+    .opacity-row label { min-width: 120px; font-size:12px; color:#333; }
+    .opacity-row input[type="range"] { width:120px; }
+    .opacity-row .val { min-width:36px; text-align:right; font-size:12px; color:#333; }
+
+    @media (max-width:600px) {
+      .legend-compact .legend-img { height:24px; }
+      .opacity-row label { min-width:100px; font-size:11px; }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <span id="info">Disaster WebGIS — Raster Flood Index (<b>gfi_banjir_jawa</b>)</span>
+  </header>
+
+  <div id="map"></div>
+
+  <!-- Horizontal Legend -->
+  <div id="compactLegend" class="legend-compact" style="display:none;">
+    <img id="legendImg" class="legend-img" src="" alt="Legend">
+    <div class="legend-label">GFI Flood</div>
+  </div>
+
+  <script>
+    // ---------------------------
+    // === CONFIGURATION ===
+    // ---------------------------
+    const WMS_BASE = "http://localhost:8080/geoserver/bbanjir/wms";
+    const WMS_LAYER = "bbanjir:gfi_banjir_jawa";
+    const STYLE_NAME = ""; // optional custom style
+    const DEFAULT_OPACITY = 0.8;
+    const SLIDER_WIDTH_PX = 160;   // legend width
+    const LEGEND_IMG_HEIGHT = 30;  // legend height
+    // ---------------------------
+
+    // Initialize map
+    const map = L.map('map').setView([-7.3, 110.0], 7);
+
+    // Base maps
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+    const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+      maxZoom: 17,
+      attribution: '© OpenTopoMap contributors'
+    });
+
+    // Flood raster WMS layer
+    const gfiRaster = L.tileLayer.wms(WMS_BASE, {
+      layers: WMS_LAYER,
+      format: 'image/png',
+      transparent: true,
+      version: '1.1.1',
+      opacity: DEFAULT_OPACITY,
+      attribution: 'GeoServer - GFI Flood'
+    }).addTo(map);
+
+    const baseMaps = { "OpenStreetMap": osm, "Topographic": topo };
+    const overlayMaps = { "GFI Flood Raster": gfiRaster };
+    L.control.layers(baseMaps, overlayMaps, { collapsed: true }).addTo(map);
+    L.control.scale({ metric: true, imperial: false }).addTo(map);
+
+    // ---------- Opacity Panel ----------
+    const OpacityControl = L.Control.extend({
+      options: { position: 'topright' },
+      onAdd: function () {
+        const container = L.DomUtil.create('div', 'opacity-panel');
+        for (const name in overlayMaps) {
+          const layerObj = overlayMaps[name];
+          const row = L.DomUtil.create('div', 'opacity-row', container);
+          const label = L.DomUtil.create('label', '', row);
+          label.textContent = name;
+
+          const slider = L.DomUtil.create('input', '', row);
+          slider.type = 'range';
+          slider.min = 0;
+          slider.max = 100;
+          slider.value = Math.round(DEFAULT_OPACITY * 100);
+          slider.style.width = SLIDER_WIDTH_PX + 'px';
+
+          const val = L.DomUtil.create('div', 'val', row);
+          val.textContent = slider.value + '%';
+          L.DomEvent.disableClickPropagation(row);
+
+          L.DomEvent.on(slider, 'input', function () {
+            const percent = Number(this.value);
+            val.textContent = percent + '%';
+            layerObj.setOpacity(percent / 100.0);
+          });
+
+          const resetBtn = L.DomUtil.create('button', '', row);
+          resetBtn.textContent = 'Reset';
+          resetBtn.style.marginLeft = '6px';
+          resetBtn.style.padding = '2px 6px';
+          resetBtn.style.fontSize = '11px';
+          L.DomEvent.on(resetBtn, 'click', function (e) {
+            e.preventDefault();
+            slider.value = Math.round(DEFAULT_OPACITY * 100);
+            slider.dispatchEvent(new Event('input'));
+          });
+        }
+        return container;
+      }
+    });
+    map.addControl(new OpacityControl());
+
+    // ---------- Horizontal Legend ----------
+    const legendBox = document.getElementById('compactLegend');
+    const legendImg = document.getElementById('legendImg');
+
+    function buildLegendURL(width) {
+      const params = new URLSearchParams({
+        SERVICE: 'WMS',
+        REQUEST: 'GetLegendGraphic',
+        FORMAT: 'image/png',
+        LAYER: WMS_LAYER,
+        WIDTH: width,
+        HEIGHT: LEGEND_IMG_HEIGHT,
+        LEGEND_OPTIONS: 'layout:horizontal;fontAntiAliasing:true;fontSize:10;forceLabels:on'
+      });
+      if (STYLE_NAME.trim() !== "") params.append('STYLE', STYLE_NAME);
+      return WMS_BASE + '?' + params.toString();
+    }
+
+    const legendURL = buildLegendURL(SLIDER_WIDTH_PX);
+    legendImg.src = legendURL;
+    legendImg.onload = () => (legendBox.style.display = 'flex');
+    legendImg.onerror = () => {
+      legendImg.style.display = 'none';
+      legendBox.style.display = 'flex';
+      legendBox.querySelector('.legend-label').textContent = 'Legend not available';
+    };
+
+    console.log('Horizontal legend URL:', legendURL);
+  </script>
+</body>
+</html>
