@@ -1,0 +1,6 @@
+var floodLayer = L.tileLayer.wms("http://localhost:8080/geoserver/bbanjir/wms", {
+    layers: 'bbanjir:Admin_Jawa',
+    format: 'image/png',
+    transparent: true,
+    attribution: "Flood Hazard Map - BIG"
+});
